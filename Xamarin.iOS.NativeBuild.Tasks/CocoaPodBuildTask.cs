@@ -15,12 +15,79 @@ using Xamarin.Messaging.VisualStudio;
 using Xamarin.VisualStudio.Build;
 using Renci.SshNet;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace Xamarin.iOS.NativeBuild.Tasks
 {
     public class CocoaPodBuildTask : Task
     {
         private static string[] SearchPaths = { "/usr/local/bin", "/usr/local/sbin", "/usr/bin", "/usr/sbin", "/bin", "/sbin" };
+
+        private static class XCodeBuild
+        {
+            public static iOSArcitecture iOS = new iOSArcitecture();
+            public static MacOSXArcitecture MacOSX = new MacOSXArcitecture();
+            public static tvOSArcitecture tvOS = new tvOSArcitecture();
+
+            public abstract class XCodeArcitecture
+            {
+                public string SimulatorSdk;
+
+                public string DeviceSdk;
+
+                public string[] SimulatorArchitectures;
+
+                public string[] DeviceArchitectures;
+
+                public string[] Architectures => SimulatorArchitectures.Union(DeviceArchitectures).ToArray();
+
+                public SingleArcitecture SimulatorSingle => new SingleArcitecture(SimulatorSdk, SimulatorArchitectures.First());
+
+                public SingleArcitecture DeviceSingle => new SingleArcitecture(DeviceSdk, DeviceArchitectures.First());
+
+                public Dictionary<string, string> Builds
+                {
+                    get
+                    {
+                        var sims = SimulatorArchitectures.Select(a => new KeyValuePair<string, string>(a, SimulatorSdk));
+                        var devs = DeviceArchitectures.Select(a => new KeyValuePair<string, string>(a, DeviceSdk));
+                        return sims.Union(devs).ToDictionary(i => i.Key, i => i.Value);
+                    }
+                }
+            }
+
+            public class SingleArcitecture : XCodeArcitecture
+            {
+                public SingleArcitecture(string sdk, string architecture)
+                {
+                    SimulatorSdk = sdk;
+                    DeviceSdk = sdk;
+
+                    SimulatorArchitectures = new[] { architecture };
+                    DeviceArchitectures = new[] { architecture };
+                }
+            }
+
+            public class iOSArcitecture : XCodeArcitecture
+            {
+                public iOSArcitecture()
+                {
+                    SimulatorSdk = "iphonesimulator";
+                    DeviceSdk = "iphoneos";
+
+                    SimulatorArchitectures = new[] { "x86_64", "i386" };
+                    DeviceArchitectures = new[] { "arm64", "armv7", "armv7s" };
+                }
+            }
+
+            public class MacOSXArcitecture : XCodeArcitecture
+            {
+            }
+
+            public class tvOSArcitecture : XCodeArcitecture
+            {
+            }
+        }
 
         private IBuildClient buildClient;
         private MessagingService messagingService;
@@ -157,6 +224,24 @@ namespace Xamarin.iOS.NativeBuild.Tasks
                 return false;
             }
 
+            // build Pod-CocoaPodBuildTask as a framework
+            if (!BuildPods(podfileRoot, true, XCodeBuild.iOS.SimulatorSingle))
+            {
+                return false;
+            }
+
+            // create the podfile for the real build
+            if (!CreatePodfile(podfileRoot, UseFrameworks, noRepoUpdate: true))
+            {
+                return false;
+            }
+
+            // build Pod-CocoaPodBuildTask as requested
+            if (!BuildPods(podfileRoot, UseFrameworks, XCodeBuild.iOS))
+            {
+                return false;
+            }
+
 
             Log.LogError("Finished Execute");
             return false;
@@ -180,8 +265,14 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             return true;
         }
 
-        private bool CreatePodfile(string podfileRoot, bool framework, bool noRepoUpdate = false)
+        private bool CreatePodfile(string podfileRoot, bool framework, bool? noRepoUpdate = null)
         {
+            var podfilePath = PlatformPath.GetPathForMac(Path.Combine(podfileRoot, "Podfile"));
+            var podfileLockPath = PlatformPath.GetPathForMac(Path.Combine(podfileRoot, "Podfile.lock"));
+
+            // see if we can avoid updating the master repo
+            noRepoUpdate = noRepoUpdate == true || (noRepoUpdate == null && Commands.FileExists(podfileLockPath));
+
             // create a Podfile on the mac
             var podfile =
                 $"{(framework ? "use_frameworks!" : "")}\n" +
@@ -189,7 +280,6 @@ namespace Xamarin.iOS.NativeBuild.Tasks
                 $"target 'CocoaPodBuildTask' do\n" +
                 $"  pod '{PodName}', '{PodVersion}'\n" +
                 $"end";
-            var podfilePath = PlatformPath.GetPathForMac(Path.Combine(podfileRoot, "Podfile"));
             Commands.CreateDirectory(podfileRoot);
             using (var stream = GetStreamFromText(podfile))
             {
@@ -201,8 +291,8 @@ namespace Xamarin.iOS.NativeBuild.Tasks
                 $@"""{PodToolPath}"" install" +
                 $@"  --no-integrate" +
                 $@"  --project-directory=""{podfileRoot}""" +
-                $@"  {(noRepoUpdate ? "--no-repo-update" : "")}";
-            var restorePods = ExecuteCommand(restore);
+                $@"  {(noRepoUpdate == true ? "--no-repo-update" : "")}";
+            var restorePods = ExecuteCommandStream(restore);
             if (!WasSuccess(restorePods))
             {
                 Log.LogError("Error installing the podfile: " + restorePods.Result);
@@ -216,11 +306,113 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             return true;
         }
 
+        private bool BuildPods(string podfileRoot, bool framework, XCodeBuild.XCodeArcitecture buildSettings)
+        {
+            var projectFilePath = PlatformPath.GetPathForMac(Path.Combine(podfileRoot, "Pods/Pods.xcodeproj"));
+
+            return BuildXcodeProject(projectFilePath, framework, buildSettings);
+        }
+
+        private bool BuildXcodeProject(string projectFilePath, bool framework, XCodeBuild.XCodeArcitecture buildSettings)
+        {
+            if (framework)
+            {
+            }
+            else
+            {
+                foreach (var build in buildSettings.Builds)
+                {
+                    var arch = build.Key;
+                    var sdk = build.Value;
+
+                    var xcodebuild =
+                        $@"""{XCodeBuildToolPath}""" +
+                        $@"  -project ""{projectFilePath}""" +
+                        $@"  -target ""Pods-CocoaPodBuildTask""" +
+                        $@"  -configuration ""Release""" +
+                        $@"  -arch ""{arch}""" +
+                        $@"  -sdk ""{sdk}""" +
+                        $@"  build";
+                    var result = ExecuteCommandStream(xcodebuild);
+                    if (!WasSuccess(result))
+                    {
+                        Log.LogError($"Error building the XCode project: {result.Result}");
+                        return false;
+                    }
+                    else
+                    {
+                        Log.LogVerbose($"xcodebuild result: {result.Result}");
+                    }
+
+                }
+            }
+
+            return true;
+        }
+
+        private bool RunLipo(string podfileRoot, string output, params string[] inputs)
+        {
+            output = PlatformPath.GetPathForMac(Path.Combine(podfileRoot, output));
+            inputs = inputs.Select(i => PlatformPath.GetPathForMac(Path.Combine(podfileRoot, i))).ToArray();
+
+            var lipo =
+                $@"lipo -create" +
+                $@"  -output ""{output}""" +
+                $@"  {inputs.Select(i => $@"""{i}"" ")}";
+            var runLipo = ExecuteCommand(lipo);
+            if (!WasSuccess(runLipo))
+            {
+                Log.LogError("Error running lipo: " + runLipo.Result);
+                return false;
+            }
+            else
+            {
+                Log.LogVerbose($"lipo result: {runLipo.Result}");
+            }
+
+            return true;
+        }
+
         protected SshCommand ExecuteCommand(string commandText)
         {
             Log.LogVerbose($"Executing SSH command '{commandText}'...");
             Log.LogCommandLine(commandText);
             var command = Commands.Runner.ExecuteCommand(commandText);
+            Log.LogVerbose($"SSH command exit code was '{command.ExitStatus}'...");
+            return command;
+        }
+
+        protected SshCommand ExecuteBashCommandStream(string commandText)
+        {
+            var bash = $"/bin/bash -c '{commandText}'";
+            return ExecuteCommandStream(bash);
+        }
+
+        protected SshCommand ExecuteCommandStream(string commandText)
+        {
+            Log.LogVerbose($"Executing SSH command '{commandText}'...");
+            Log.LogCommandLine(commandText);
+            var command = MessagingService.SshMessagingConnection.SshClient.CreateCommand(commandText);
+            var asyncResult = command.BeginExecute(result =>
+            {
+                var text = command.EndExecute(result);
+                if (!string.IsNullOrEmpty(text))
+                {
+                    Log.LogVerbose(text);
+                }
+            });
+            var reader = new StreamReader(command.OutputStream);
+            while (!asyncResult.IsCompleted)
+            {
+                if (!reader.EndOfStream)
+                {
+                    Log.LogVerbose(reader.ReadToEnd().Trim());
+                }
+                else
+                {
+                    Thread.Sleep(100);
+                }
+            }
             Log.LogVerbose($"SSH command exit code was '{command.ExitStatus}'...");
             return command;
         }
