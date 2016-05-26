@@ -14,6 +14,7 @@ using Xamarin.Messaging.Diagnostics;
 using Xamarin.Messaging.VisualStudio;
 using Xamarin.VisualStudio.Build;
 using Renci.SshNet;
+using System.Collections.Generic;
 
 namespace Xamarin.iOS.NativeBuild.Tasks
 {
@@ -35,7 +36,9 @@ namespace Xamarin.iOS.NativeBuild.Tasks
         [Required]
         public string IntermediateOutputPath { get; set; }
 
-        public string ToolPath { get; set; }
+        public string PodToolPath { get; set; }
+
+        public string XCodeBuildToolPath { get; set; }
 
         // pod properties
 
@@ -133,31 +136,27 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             }
 
             // make sure we have POD available
-            ToolPath = LocatePodToolPath(ToolPath);
-            if (string.IsNullOrEmpty(ToolPath))
+            PodToolPath = LocateToolPath(PodToolPath, "pod", "--version");
+            if (string.IsNullOrEmpty(PodToolPath))
             {
                 return false;
             }
 
-            // create a Podfile on the mac
-            var podfile =
-                $"{(UseFrameworks ? "use_frameworks!" : "")}\n" +
-                $"platform :{PlatformName}, '{PlatformVersion}'\n" +
-                $"pod '{PodName}', '{PodVersion}'";
-            var podfileRoot = Path.Combine(BuildIntermediateOutputPath, PodName);
-            var podfilePath = Path.Combine(podfileRoot, "Podfile");
-            Commands.CreateDirectory(podfileRoot);
-            using (var stream = GetStreamFromText(podfile))
+            // make sure we have POD available
+            XCodeBuildToolPath = LocateToolPath(XCodeBuildToolPath, "xcodebuild", "-version");
+            if (string.IsNullOrEmpty(XCodeBuildToolPath))
             {
-                Commands.Runner.Upload(stream, PlatformPath.GetPathForMac(podfilePath));
+                return false;
             }
 
-            // restore those pods
-            var restorePods = ExecuteCommand($@"""{ToolPath}"" install --no-integrate --project-directory=""{PlatformPath.GetPathForMac(podfileRoot)}""");
-            if (!WasSuccess(restorePods))
+            var podfileRoot = PlatformPath.GetPathForMac(Path.Combine(BuildIntermediateOutputPath, PodName));
+
+            // create the podfile for the bundling build
+            if (!CreatePodfile(podfileRoot, true))
             {
-                Log.LogError("Error installing the podfile: " + restorePods.Result);
+                return false;
             }
+
 
             Log.LogError("Finished Execute");
             return false;
@@ -177,6 +176,42 @@ namespace Xamarin.iOS.NativeBuild.Tasks
 
 
             //return (new TaskRunner(SessionId)).Run(this);
+
+            return true;
+        }
+
+        private bool CreatePodfile(string podfileRoot, bool framework, bool noRepoUpdate = false)
+        {
+            // create a Podfile on the mac
+            var podfile =
+                $"{(framework ? "use_frameworks!" : "")}\n" +
+                $"platform :{PlatformName}, '{PlatformVersion}'\n" +
+                $"target 'CocoaPodBuildTask' do\n" +
+                $"  pod '{PodName}', '{PodVersion}'\n" +
+                $"end";
+            var podfilePath = PlatformPath.GetPathForMac(Path.Combine(podfileRoot, "Podfile"));
+            Commands.CreateDirectory(podfileRoot);
+            using (var stream = GetStreamFromText(podfile))
+            {
+                Commands.Runner.Upload(stream, podfilePath);
+            }
+
+            // restore those pods
+            var restore =
+                $@"""{PodToolPath}"" install" +
+                $@"  --no-integrate" +
+                $@"  --project-directory=""{podfileRoot}""" +
+                $@"  {(noRepoUpdate ? "--no-repo-update" : "")}";
+            var restorePods = ExecuteCommand(restore);
+            if (!WasSuccess(restorePods))
+            {
+                Log.LogError("Error installing the podfile: " + restorePods.Result);
+                return false;
+            }
+            else
+            {
+                Log.LogVerbose($"pod result: {restorePods.Result}");
+            }
 
             return true;
         }
@@ -226,7 +261,7 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             return stream;
         }
 
-        private string LocatePodToolPath(string toolPath)
+        private string LocateToolPath(string toolPath, string tool, string versionOption)
         {
             string foundPath = null;
 
@@ -242,40 +277,47 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             else
             {
                 // not set, so search
-                var findPod = GetCommandResult("which pod");
-                if (!string.IsNullOrEmpty(findPod))
+                var findTool = GetCommandResult($"which {tool}");
+                if (!string.IsNullOrEmpty(findTool))
                 {
-                    foundPath = findPod.Trim();
+                    foundPath = findTool.Trim();
                 }
                 else
                 {
-                    // we didn't find pod in the default places, so do a bit of research
+                    // we didn't find {tool} in the default places, so do a bit of research
                     var dirs = string.Join(" ", SearchPaths);
                     var command =
                         $@"for file in {dirs}; do " +
-                        $@"  if [ -e ""$file/pod"" ]; then" +
-                        $@"    echo ""$file/pod""; " +
+                        $@"  if [ -e ""$file/{tool}"" ]; then" +
+                        $@"    echo ""$file/{tool}""; " +
                         $@"    exit 0; " +
                         $@"  fi; " +
                         $@"done; " +
                         $@"exit 1; ";
-                    findPod = GetCommandResult(command);
-                    if (!string.IsNullOrEmpty(findPod))
+                    findTool = GetCommandResult(command);
+                    if (!string.IsNullOrEmpty(findTool))
                     {
-                        foundPath = findPod.Trim();
+                        foundPath = findTool.Trim();
                     }
                 }
             }
 
             if (string.IsNullOrEmpty(foundPath))
             {
-                Log.LogError("Unable to find POD.");
+                Log.LogError("Unable to find {tool}.");
             }
             else
             {
                 foundPath = PlatformPath.GetPathForMac(foundPath);
-                var version = GetCommandResult($"{foundPath} --version");
-                Log.LogVerbose($"Found POD version {version} at {foundPath}.");
+                if (string.IsNullOrEmpty(versionOption))
+                {
+                    Log.LogVerbose($"Found {tool} at {foundPath}.");
+                }
+                else
+                {
+                    var version = GetCommandResult($"{foundPath} {versionOption}");
+                    Log.LogVerbose($"Found {tool} version {version} at {foundPath}.");
+                }
             }
 
             return foundPath;
