@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <UsingTask TaskName="Xamarin.iOS.NativeBuild.Tasks.CocoaPodBuildTask"
+             AssemblyFile="$(MSBuildThisFileDirectory)bin\Debug\Xamarin.iOS.NativeBuild.Tasks.dll"/>
+
+  <PropertyGroup>
+
+  </PropertyGroup>
+
+  <Target Name="LogItAll" BeforeTargets="" AfterTargets="_SayHello">
+
+    <Message Text="SessionId='$(BuildSessionId)'" />
+    <Message Text="IntermediateDir='$(IntermediateOutputPath)build_package\'" />
+    <Message Text="ServerPort='$(ServerPort)'" />
+    <Message Text="MtbsBuildsPath='~/Library/Caches/Xamarin/mtbs/builds'" />
+    <Message Text="ServerAddress='$(ServerAddress)'" />
+    <Message Text="ServerUser='$(ServerUser)'" />
+    <Message Text="ServerPassword='$(ServerPassword)'" />
+    <Message Text="SSHKey='$(SSHKey)'" />
+    <Message Text="SSHPassPhrase='$(SSHPassPhrase)'" />
+    <Message Text="AppName='$(BuildAppName)'" />
+    <Message Text="GenerateCache='$(GenerateCache)'" />
+    <Message Text="ProjectDirectory='$(MSBuildProjectDirectory)'" />
+    <Message Text="ContinueOnDisconnected='$(ContinueOnDisconnected)'" />
+    <Message Text="BuildingInsideVisualStudio='$(BuildingInsideVisualStudio)'" />
+    <Message Text="MtouchTargetsEnabled='$(MtouchTargetsEnabled)'" />
+    <Message Text="MacBuildPath='$(MacBuildPath)'" />
+
+    <!--<GenerateCocoaPodFiles SessionId="$(BuildSessionId)"  /usr/local/bin/pod />-->
+
+    <CocoaPodBuildTask SessionId="$(BuildSessionId)" AppName="$(BuildAppName)"
+                       PodName="SocketRocket" PodVersion="0.5.0"
+                       PlatformName="ios" PlatformVersion="6.0"
+                       IntermediateOutputPath="$(DeviceSpecificIntermediateOutputPath)pods">
+      <!--<Output TaskParameter="" PropertyName="MtouchExtraArgs" /> -gcc_flags "'mylib.a'" -->
+    </CocoaPodBuildTask>
+
+  </Target>
+
+</Project>
