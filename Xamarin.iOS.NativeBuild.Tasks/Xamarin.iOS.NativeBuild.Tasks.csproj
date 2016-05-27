@@ -110,10 +110,12 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="XCodeBuildSettings.cs" />
     <Compile Include="LogExtensions.cs" />
     <Compile Include="CocoaPodBuildTask.cs" />
     <Compile Include="PodPlatform.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="SshBasedTask.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="Xamarin.iOS.NativeBuild.Tasks.targets">
