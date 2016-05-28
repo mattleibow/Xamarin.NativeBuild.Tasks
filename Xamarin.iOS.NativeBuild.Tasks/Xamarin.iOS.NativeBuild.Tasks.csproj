@@ -110,17 +110,26 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="CocoaPods.cs" />
-    <Compile Include="ISshInterface.cs" />
-    <Compile Include="SshPath.cs" />
-    <Compile Include="Utilities.cs" />
-    <Compile Include="XCodeBuild.cs" />
-    <Compile Include="XCodeBuildParameters.cs" />
-    <Compile Include="LogExtensions.cs" />
+    <Compile Include="CocoaPods\CocoaPodsTool.cs" />
+    <Compile Include="CocoaPods\Pod.cs" />
+    <Compile Include="CocoaPods\Podfile.cs" />
+    <Compile Include="CocoaPods\PodfilePlatform.cs" />
+    <Compile Include="Common\ISshInterface.cs" />
+    <Compile Include="Common\SshPath.cs" />
+    <Compile Include="Common\Utilities.cs" />
+    <Compile Include="XCodeBuild\XCodeArchitectures.cs" />
+    <Compile Include="XCodeBuild\XCodeBuildTool.cs" />
+    <Compile Include="XCodeBuild\BuildArchitectureOutput.cs" />
+    <Compile Include="XCodeBuild\XCodeBuildOutputs.cs" />
+    <Compile Include="XCodeBuild\XCodeBuildParameters.cs" />
+    <Compile Include="Common\LogExtensions.cs" />
     <Compile Include="CocoaPodBuildTask.cs" />
-    <Compile Include="XCodePlatform.cs" />
+    <Compile Include="XCodeBuild\BuildIntermediates.cs" />
+    <Compile Include="XCodeBuild\BuildTargetOutput.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SshBasedTask.cs" />
+    <Compile Include="XCodeBuild\XCodePlatforms.cs" />
+    <Compile Include="XCodeBuild\XCodeSDKs.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="Xamarin.iOS.NativeBuild.Tasks.targets">

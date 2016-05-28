@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 
-namespace Xamarin.iOS.NativeBuild.Tasks
+namespace Xamarin.iOS.NativeBuild.Tasks.Common
 {
     public static class SshPath
     {

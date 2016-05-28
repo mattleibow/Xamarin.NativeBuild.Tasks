@@ -5,34 +5,86 @@
              AssemblyFile="$(MSBuildThisFileDirectory)bin\Debug\Xamarin.iOS.NativeBuild.Tasks.dll"/>
 
   <PropertyGroup>
-    <CocoaPodPlatformName>ios</CocoaPodPlatformName>
-    <CocoaPodPlatformVersion>8.0</CocoaPodPlatformVersion>
-    <CocoaPodArchitectures>ARMv7,ARM64,x86_64</CocoaPodArchitectures>
+    <!--<CocoaPodPlatformVersion>8.0</CocoaPodPlatformVersion>-->
+    <CocoaPodArchitectures>i386,x86_64,ARM64,ARMv7,ARMv7s</CocoaPodArchitectures>
   </PropertyGroup>
 
   <ItemGroup>
     <CocoaPodItem Include="SocketRocket">
       <Version>0.5.0</Version>
     </CocoaPodItem>
-    <CocoaPodItem Include="12306DeveCocoa">
+    <CocoaPodItem Include="12306DeveCocoa" Condition=" '$(TargetFrameworkIdentifier)' == 'Xamarin.iOS' ">
       <Version>0.0.4</Version>
     </CocoaPodItem>
-    <CocoaPodItem Include="VK-ios-sdk">
+    <CocoaPodItem Include="VK-ios-sdk" Condition=" '$(TargetFrameworkIdentifier)' == 'Xamarin.iOS' ">
       <Version>1.3.17</Version>
     </CocoaPodItem>
-    <CocoaPodItem Include="CTAssetsPickerController">
+    <CocoaPodItem Include="CTAssetsPickerController" Condition=" '$(TargetFrameworkIdentifier)' == 'Xamarin.iOS' ">
       <Version>3.3.1</Version>
     </CocoaPodItem>
   </ItemGroup>
 
-  <Target Name="LogItAll" BeforeTargets="" AfterTargets="_SayHello" DependsOnTargets="">
+
+  <Target Name="_DetectNativeBuildProperties" DependsOnTargets="_DetectSdkLocations">
+    <PropertyGroup>
+
+      <!-- core properties -->
+
+      <IsXCodeBased>false</IsXCodeBased>
+      <IsXCodeBased Condition=" '$(TargetFrameworkIdentifier)' == 'MonoTouch' ">true</IsXCodeBased>
+      <IsXCodeBased Condition=" '$(TargetFrameworkIdentifier)' == 'Xamarin.iOS' ">true</IsXCodeBased>
+      <IsXCodeBased Condition=" '$(TargetFrameworkIdentifier)' == 'Xamarin.Mac' ">true</IsXCodeBased>
+      <IsXCodeBased Condition=" '$(TargetFrameworkIdentifier)' == 'Xamarin.TVOS' ">true</IsXCodeBased>
+      <IsXCodeBased Condition=" '$(TargetFrameworkIdentifier)' == 'Xamarin.WatchOS' ">true</IsXCodeBased>
+
+      <CocoaPodPlatformName></CocoaPodPlatformName>
+      <CocoaPodPlatformName Condition=" '$(TargetFrameworkIdentifier)' == 'MonoTouch' ">iOS</CocoaPodPlatformName>
+      <CocoaPodPlatformName Condition=" '$(TargetFrameworkIdentifier)' == 'Xamarin.iOS' ">iOS</CocoaPodPlatformName>
+      <CocoaPodPlatformName Condition=" '$(TargetFrameworkIdentifier)' == 'Xamarin.Mac' ">watchOS</CocoaPodPlatformName>
+      <CocoaPodPlatformName Condition=" '$(TargetFrameworkIdentifier)' == 'Xamarin.TVOS' ">tvOS</CocoaPodPlatformName>
+      <CocoaPodPlatformName Condition=" '$(TargetFrameworkIdentifier)' == 'Xamarin.WatchOS' ">OSX</CocoaPodPlatformName>
+
+      <!-- overridable -->
+
+      <CocoaPodPlatformVersion Condition=" '$(CocoaPodPlatformVersion)' == '' ">$(MtouchSdkVersion)</CocoaPodPlatformVersion>
+
+      <!--<CocoaPodArchitectures Condition=" '$(CocoaPodArchitectures)' == '' "></CocoaPodArchitectures>-->
+      <CocoaPodArchitectures Condition=" '$(CocoaPodArchitectures)' == '' and '$(XamMacArch)' != '' ">$(XamMacArch)</CocoaPodArchitectures>
+      <CocoaPodArchitectures Condition=" '$(CocoaPodArchitectures)' == '' and '$(TargetArchitectures)' != '' ">$(TargetArchitectures)</CocoaPodArchitectures>
+
+    </PropertyGroup>
+
+    <Warning Text="In _DetectNativeBuildProperties" />
+
+  </Target>
+
+  <Target Name="_BuildCocoaPods"
+          DependsOnTargets="_DetectNativeBuildProperties"
+          Condition=" '$(IsXCodeBased)' == 'true' and '@(CocoaPodItem)' != '' ">
+
+    <Warning Text="In _BuildCocoaPods: $(MtouchExtraArgs)" />
 
     <CocoaPodBuildTask SessionId="$(BuildSessionId)" AppName="$(BuildAppName)"
-                       PlatformName="$(CocoaPodPlatformName)" PlatformVersion="$(CocoaPodPlatformVersion)" Pods="@(CocoaPodItem)"
+                       PlatformName="$(CocoaPodPlatformName)" PlatformVersion="$(CocoaPodPlatformVersion)"
+                       Pods="@(CocoaPodItem)"
                        IntermediateOutputPath="$(DeviceSpecificIntermediateOutputPath)pods"
-                       Architectures="$(MtouchArch),$(CocoaPodArchitectures)">
-      <!--<Output TaskParameter="" PropertyName="MtouchExtraArgs" /> -gcc_flags "'mylib.a'" -->
+                       Architectures="$(CocoaPodArchitectures)">
+      <Output TaskParameter="NewMtouchExtraArgs" PropertyName="_NewMtouchExtraArgs" />
     </CocoaPodBuildTask>
+
+    <PropertyGroup>
+      <MtouchExtraArgs>$(MtouchExtraArgs) $(_NewMtouchExtraArgs)</MtouchExtraArgs>
+      <_NewMtouchExtraArgs></_NewMtouchExtraArgs>
+    </PropertyGroup>
+
+    <Warning Text="Leaving _BuildCocoaPods: $(MtouchExtraArgs)" />
+  </Target>
+
+  <Target Name="_RunNativeBuild"
+          BeforeTargets="BeforeBuild" AfterTargets=""
+          DependsOnTargets="_DetectNativeBuildProperties;_BuildCocoaPods">
+
+    <Warning Text="In _RunNativeBuild" />
 
   </Target>
 

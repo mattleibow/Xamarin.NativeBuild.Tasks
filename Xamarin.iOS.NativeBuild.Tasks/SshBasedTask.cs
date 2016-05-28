@@ -14,6 +14,7 @@ using Xamarin.VisualStudio.Build;
 using Renci.SshNet;
 using System.Diagnostics;
 using System.Text;
+using Xamarin.iOS.NativeBuild.Tasks.Common;
 
 namespace Xamarin.iOS.NativeBuild.Tasks
 {
@@ -237,13 +238,13 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             return command;
         }
 
-        public SshCommand ExecuteBashCommandStream(string commandText)
+        public SshCommand ExecuteBashCommandStream(string commandText, Action<string> processStream = null)
         {
             var bash = $"/bin/bash -c '{commandText}'";
             return ExecuteCommandStream(bash);
         }
 
-        public SshCommand ExecuteCommandStream(string commandText)
+        public SshCommand ExecuteCommandStream(string commandText, Action<string> processStream = null)
         {
             Log.LogVerbose($"Executing SSH command '{commandText}'...");
             Log.LogCommandLine(commandText);
@@ -270,7 +271,9 @@ namespace Xamarin.iOS.NativeBuild.Tasks
 
                 if (!reader.EndOfStream)
                 {
-                    Log.LogVerbose(reader.ReadToEnd().Trim());
+                    var streamContents = reader.ReadToEnd().Trim();
+                    processStream?.Invoke(streamContents);
+                    Log.LogVerbose(streamContents);
                 }
                 else
                 {

@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Xamarin.iOS.NativeBuild.Tasks
+namespace Xamarin.iOS.NativeBuild.Tasks.XCodeBuild
 {
     public class XCodeBuildParameters
     {
@@ -16,9 +16,11 @@ namespace Xamarin.iOS.NativeBuild.Tasks
 
         public string OutputDirectory { get; set; }
 
-        public XCodeBuildParameters.XCodeArcitecture ArchitectureSettings { get; set; }
+        public XCodeArcitecture ArchitectureSettings { get; set; }
 
-        public string[] Targets { get; set; }
+        public string[] BuildTargets { get; set; }
+
+        public string[] OutputTargets { get; set; }
 
         public XCodeArchitectures ArchitectureOverride { get; set; }
 

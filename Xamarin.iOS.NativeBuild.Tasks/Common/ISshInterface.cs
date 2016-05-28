@@ -1,7 +1,8 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using Renci.SshNet;
 
-namespace Xamarin.iOS.NativeBuild.Tasks
+namespace Xamarin.iOS.NativeBuild.Tasks.Common
 {
     public interface ISshInterface
     {
@@ -11,9 +12,9 @@ namespace Xamarin.iOS.NativeBuild.Tasks
         void CopyPath(string source, string destination);
         void CreateDirectory(string directoryPath);
         void CreateFile(Stream stream, string remotePath);
-        SshCommand ExecuteBashCommandStream(string commandText);
+        SshCommand ExecuteBashCommandStream(string commandText, Action<string> processStream = null);
         SshCommand ExecuteCommand(string commandText);
-        SshCommand ExecuteCommandStream(string commandText);
+        SshCommand ExecuteCommandStream(string commandText, Action<string> processStream = null);
         bool ExecuteLaunchCtlCommand(string[] arguments, int checkInterval = 600, string workingDirectory = null);
         bool FileExists(string filePath);
         string GetCommandResult(SshCommand command);

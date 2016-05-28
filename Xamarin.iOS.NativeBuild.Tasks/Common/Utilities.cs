@@ -1,8 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-namespace Xamarin.iOS.NativeBuild.Tasks
+namespace Xamarin.iOS.NativeBuild.Tasks.Common
 {
     public static class Utilities
     {
@@ -25,6 +26,29 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             writer.Flush();
             stream.Position = 0;
             return stream;
+        }
+
+        public static T ParseEnum<T>(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return default(T);
+            }
+
+            var split = value.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+            value = string.Join(",", split.Select(s => s.Trim()).Where(s => !string.IsNullOrWhiteSpace(s)));
+
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return default(T);
+            }
+
+            return (T)Enum.Parse(typeof(T), value, true);
+        }
+
+        public static T CreateEnum<T>(IEnumerable<T> flags)
+        {
+            return (T)(object)flags.Cast<int>().Aggregate((aggr, next) => aggr | next);
         }
     }
 }

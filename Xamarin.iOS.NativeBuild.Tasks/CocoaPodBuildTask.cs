@@ -1,6 +1,8 @@
-﻿using System;
-using System.Linq;
+﻿using System.Linq;
 using Microsoft.Build.Framework;
+using Xamarin.iOS.NativeBuild.Tasks.XCodeBuild;
+using Xamarin.iOS.NativeBuild.Tasks.CocoaPods;
+using Xamarin.iOS.NativeBuild.Tasks.Common;
 
 namespace Xamarin.iOS.NativeBuild.Tasks
 {
@@ -10,11 +12,14 @@ namespace Xamarin.iOS.NativeBuild.Tasks
 
         public string PodToolPath { get; set; }
 
-        public CocoaPods CocoaPods { get; set; }
+        public CocoaPodsTool CocoaPods { get; set; }
 
         public string XCodeBuildToolPath { get; set; }
 
-        public XCodeBuild XCodeBuild { get; set; }
+        public XCodeBuildTool XCodeBuild { get; set; }
+
+        [Output]
+        public string NewMtouchExtraArgs { get; set; }
 
         // pod properties
 
@@ -31,13 +36,13 @@ namespace Xamarin.iOS.NativeBuild.Tasks
 
         public string Architectures { get; set; }
 
-        public CocoaPods.PodfilePlatform PodfilePlatform => (CocoaPods.PodfilePlatform)Enum.Parse(typeof(CocoaPods.PodfilePlatform), PlatformName, true);
+        public PodfilePlatform PodfilePlatform => Utilities.ParseEnum<PodfilePlatform>(PlatformName);
 
         // XCode
 
-        public XCodeArchitectures XCodeArchitectures => (XCodeArchitectures)Enum.Parse(typeof(XCodeArchitectures), Architectures, true);
+        public XCodeArchitectures XCodeArchitectures => Utilities.ParseEnum<XCodeArchitectures>(Architectures);
 
-        public XCodePlatforms XCodePlatform => (XCodePlatforms)Enum.Parse(typeof(XCodePlatforms), PlatformName, true);
+        public XCodePlatforms XCodePlatform => Utilities.ParseEnum<XCodePlatforms>(PlatformName);
 
         public XCodeBuildParameters.XCodeArcitecture XCodeBuildArchitecture => XCodeBuildParameters.GetArchitecture(XCodePlatform);
 
@@ -74,16 +79,17 @@ namespace Xamarin.iOS.NativeBuild.Tasks
                 return false;
             }
 
-            XCodeBuild = new XCodeBuild(XCodeBuildToolPath, Log, GetCancellationToken(), this);
-            CocoaPods = new CocoaPods(PodToolPath, Log, GetCancellationToken(), this);
+            XCodeBuild = new XCodeBuildTool(XCodeBuildToolPath, Log, GetCancellationToken(), this);
+            CocoaPods = new CocoaPodsTool(PodToolPath, Log, GetCancellationToken(), this);
 
-            var podfile = new CocoaPods.Podfile
+            var podfile = new Podfile
             {
                 Platform = PodfilePlatform,
                 PlatformVersion = PlatformVersion,
                 UseFrameworks = UseFrameworks,
+                TargetName = "MSBuildTask",
                 Pods = Pods.Select(p =>
-                    new CocoaPods.Pod
+                    new Pod
                     {
                         Id = p.ItemSpec,
                         Version = p.GetMetadata("Version")
@@ -109,7 +115,8 @@ namespace Xamarin.iOS.NativeBuild.Tasks
                 podfile.UseFrameworks = UseFrameworks;
 
                 // build Pod-CocoaPodBuildTask as a framework
-                if (!BuildPodfileXCodeProject(podfileRoot, includeTargets, XCodeBuildParameters.SplitArchitecture(XCodeArchitectures).FirstOrDefault(), true))
+                var framework = BuildPodfileXCodeProject(podfileRoot, includeTargets, XCodeBuildParameters.SplitArchitecture(XCodeArchitectures).FirstOrDefault(), true);
+                if (framework == null)
                 {
                     return false;
                 }
@@ -125,26 +132,42 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             }
 
             // build Pod-CocoaPodBuildTask as requested
-            if (!BuildPodfileXCodeProject(podfileRoot, includeTargets, XCodeArchitectures, UseFrameworks))
+            var outputs = BuildPodfileXCodeProject(podfileRoot, includeTargets, XCodeArchitectures, UseFrameworks);
+            if (outputs == null)
             {
                 return false;
             }
 
+            // TODO this needs work - testing only
+            var staticArchives = string.Join(" ", outputs.Select(to => $"'{to.ArchiveOutput.Path}'"));
+            NewMtouchExtraArgs += $@" -gcc_flags "" {staticArchives} "" ";
+
             return true;
         }
 
-        private bool BuildPodfileXCodeProject(string podfileRoot, string[] targets, XCodeArchitectures architectures, bool framework)
+        private XCodeBuildOutputs BuildPodfileXCodeProject(string podfileRoot, string[] targets, XCodeArchitectures architectures, bool framework)
         {
-            return XCodeBuild.BuildXCodeProject(new XCodeBuildParameters
+            var parameters = new XCodeBuildParameters
             {
                 ArchitectureSettings = XCodeBuildArchitecture,
                 ArtifactsDirectory = SshPath.Combine(podfileRoot, "build"),
                 OutputDirectory = SshPath.Combine(podfileRoot, "out"),
                 IsFrameworks = framework,
                 ProjectFilePath = SshPath.Combine(podfileRoot, "Pods/Pods.xcodeproj"),
-                Targets = targets,
+                BuildTargets = new[] { "Pods-MSBuildTask" },
+                OutputTargets = targets,
                 ArchitectureOverride = architectures
-            });
+            };
+            var outputs = new XCodeBuildOutputs();
+
+            if (XCodeBuild.BuildXCodeProject(parameters, outputs))
+            {
+                return outputs;
+            }
+            else
+            {
+                return null;
+            }
         }
     }
 }

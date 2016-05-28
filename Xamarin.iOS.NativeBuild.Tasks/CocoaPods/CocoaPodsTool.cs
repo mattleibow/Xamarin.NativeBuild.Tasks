@@ -1,11 +1,12 @@
 using System.Threading;
 using Microsoft.Build.Utilities;
+using Xamarin.iOS.NativeBuild.Tasks.Common;
 
-namespace Xamarin.iOS.NativeBuild.Tasks
+namespace Xamarin.iOS.NativeBuild.Tasks.CocoaPods
 {
-    public class CocoaPods
+    public class CocoaPodsTool
     {
-        public CocoaPods(string podToolPath, TaskLoggingHelper log, CancellationToken cancellation, ISshInterface sshInterface)
+        public CocoaPodsTool(string podToolPath, TaskLoggingHelper log, CancellationToken cancellation, ISshInterface sshInterface)
         {
             PodToolPath = podToolPath;
             Log = log;
@@ -50,7 +51,7 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             var podfileContents =
                 $"{(podfile.UseFrameworks ? "use_frameworks!" : "")}\n" +
                 $"platform :{podfile.PlatformName}, '{podfile.PlatformVersion}'\n" +
-                $"target 'CocoaPodBuildTask' do\n";
+                $"target '{podfile.TargetName}' do\n";
             foreach (var pod in podfile.Pods)
             {
                 podfileContents +=
@@ -80,42 +81,23 @@ namespace Xamarin.iOS.NativeBuild.Tasks
                 $@"  --no-integrate" +
                 $@"  --project-directory=""{podfileRoot}""" +
                 $@"  {(noRepoUpdate == true ? "--no-repo-update" : "")}";
-            var restorePods = Ssh.ExecuteCommandStream(restore);
+            var restorePods = Ssh.ExecuteCommandStream(restore, contents =>
+            {
+                foreach (var line in Utilities.SplitLines(contents))
+                {
+                    if (line.Trim().StartsWith("[!]"))
+                    {
+                        Log.LogError(line);
+                    }
+                }
+            });
             if (!Ssh.WasSuccess(restorePods))
             {
-                Log.LogError("Error installing the podfile: " + restorePods.Result);
+                Log.LogError("Error installing the podfile.");
                 return false;
             }
 
             return true;
-        }
-
-        public enum PodfilePlatform
-        {
-            iOS,
-            tvOS,
-            OSX,
-            watchOS
-        }
-
-        public class Podfile
-        {
-            public string PlatformName => Platform.ToString().ToLowerInvariant();
-
-            public PodfilePlatform Platform { get; set; }
-
-            public string PlatformVersion { get; set; }
-
-            public bool UseFrameworks { get; set; }
-
-            public Pod[] Pods { get; set; }
-        }
-
-        public class Pod
-        {
-            public string Id { get; set; }
-
-            public string Version { get; set; }
         }
     }
 }
