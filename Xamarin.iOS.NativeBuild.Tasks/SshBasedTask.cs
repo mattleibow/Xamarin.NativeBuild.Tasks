@@ -12,10 +12,12 @@ using Xamarin.Messaging.Diagnostics;
 using Xamarin.Messaging.VisualStudio;
 using Xamarin.VisualStudio.Build;
 using Renci.SshNet;
+using System.Diagnostics;
+using System.Text;
 
 namespace Xamarin.iOS.NativeBuild.Tasks
 {
-    public abstract class SshBasedTask : Task, ICancelableTask
+    public abstract class SshBasedTask : Task, ICancelableTask, ISshInterface
     {
         protected static string[] ToolSearchPaths = { "/usr/local/bin", "/usr/local/sbin", "/usr/bin", "/usr/sbin", "/bin", "/sbin" };
 
@@ -106,22 +108,127 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             tokenSource.Cancel();
         }
 
-        protected void UploadFile(Stream stream, string remotePath)
+        protected CancellationToken GetCancellationToken()
         {
-            Commands.Runner.Upload(stream, remotePath);
+            return tokenSource.Token;
         }
 
-        protected void CreateDirectory(string directoryPath)
+        public void CreateFile(Stream stream, string remotePath)
         {
-            Commands.CreateDirectory(directoryPath);
+            Commands.Runner.Upload(stream, SshPath.ToSsh(remotePath));
         }
 
-        protected bool FileExists(string filePath)
+        public void CopyPath(string source, string destination)
         {
-            return Commands.FileExists(filePath);
+            ExecuteCommand($@"cp -rf ""{SshPath.ToSsh(source)}"" ""{SshPath.ToSsh(destination)}""");
         }
 
-        protected SshCommand ExecuteCommand(string commandText)
+        public void CreateDirectory(string directoryPath)
+        {
+            Commands.CreateDirectory(SshPath.ToSsh(directoryPath));
+        }
+
+        public bool FileExists(string filePath)
+        {
+            return Commands.FileExists(SshPath.ToSsh(filePath));
+        }
+
+        private string CreatePList(string labelName, string outputPath, string errorPath, string[] arguments, string workingDirectory = null)
+        {
+            var plist =
+                $"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                $"<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
+                $"<plist version=\"1.0\">\n" +
+                $"<dict>\n" +
+                $"    <key>Label</key>\n" +
+                $"    <string>{labelName}</string>\n" +
+                $"    <key>RunAtLoad</key>\n" +
+                $"    <true/>\n" +
+                $"    <key>LaunchOnlyOnce</key>\n" +
+                $"    <true/>\n" +
+                $"    <key>LimitLoadToSessionType</key>\n" +
+                $"    <string>Aqua</string>\n";
+            if (!string.IsNullOrEmpty(workingDirectory))
+            {
+                plist +=
+                $"    <key>WorkingDirectory</key>\n" +
+                $"    <string>{workingDirectory}</string>\n";
+            }
+            plist +=
+                $"    <key>StandardOutPath</key>\n" +
+                $"    <string>{outputPath}</string>\n" +
+                $"    <key>StandardErrorPath</key>\n" +
+                $"    <string>{errorPath}</string>\n" +
+                $"    <key>ProgramArguments</key>\n" +
+                $"    <array>\n";
+            foreach (var arg in arguments)
+            {
+                plist +=
+                $"        <string>{arg}</string>\n";
+            }
+            plist +=
+                $"    </array>\n" +
+                $"</dict>\n" +
+                $"</plist>\n";
+            return plist;
+        }
+
+        public bool ExecuteLaunchCtlCommand(string[] arguments, int checkInterval = 600, string workingDirectory = null)
+        {
+            var binary = arguments.FirstOrDefault();
+            var options = new StartOptions
+            {
+                Id = Process.GetCurrentProcess().Id.ToString(),
+                DateTime = DateTime.Now
+            };
+            var labelName = $"com.xamarin.nativebuild.tasks.{options.GetFormattedDateTime()}.{options.Id}.{Path.GetFileNameWithoutExtension(binary)}".ToLowerInvariant();
+            var root = $"/tmp/{labelName}";
+
+            var outputLog = SshPath.Combine(root, "output.log");
+            var errorLog = SshPath.Combine(root, "error.log");
+            var appPList = SshPath.Combine(root, "app.plist");
+
+            // upload the plist
+            var plist = CreatePList(labelName, outputLog, errorLog, arguments, workingDirectory);
+            CreateDirectory(root);
+            using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(plist)))
+            {
+                CreateFile(stream, appPList);
+            }
+
+            // create the logs and start the process
+            var launchctl = ExecuteCommand($"touch {outputLog}; touch {errorLog}; launchctl load -S Aqua {appPList}");
+            if (!WasSuccess(launchctl))
+            {
+                Log.LogError($"Unable to starting {binary}: {launchctl.Result}");
+                return false;
+            }
+
+            // tail and stream the output
+            var tailOutput = ExecuteCommandStream($"tail -f {outputLog} & while launchctl list {labelName} &> /dev/null; do sleep {checkInterval / 1000}; done; kill $!;");
+            if (!WasSuccess(tailOutput))
+            {
+                Log.LogError($"There was an error reading the output: {tailOutput.Result}");
+                return false;
+            }
+
+            // get the errors
+            var tailError = ExecuteCommand($"cat {errorLog}");
+            if (!WasSuccess(tailError))
+            {
+                Log.LogError($"There was an error reading the error log: {tailError.Result}");
+                return false;
+            }
+            else if (!string.IsNullOrEmpty(tailError.Result))
+            {
+                Log.LogError($"There was an error: {tailError.Result}");
+                return false;
+            }
+
+            return true;
+        }
+
+        public SshCommand ExecuteCommand(string commandText)
         {
             Log.LogVerbose($"Executing SSH command '{commandText}'...");
             Log.LogCommandLine(commandText);
@@ -130,13 +237,13 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             return command;
         }
 
-        protected SshCommand ExecuteBashCommandStream(string commandText)
+        public SshCommand ExecuteBashCommandStream(string commandText)
         {
             var bash = $"/bin/bash -c '{commandText}'";
             return ExecuteCommandStream(bash);
         }
 
-        protected SshCommand ExecuteCommandStream(string commandText)
+        public SshCommand ExecuteCommandStream(string commandText)
         {
             Log.LogVerbose($"Executing SSH command '{commandText}'...");
             Log.LogCommandLine(commandText);
@@ -176,13 +283,13 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             return command;
         }
 
-        protected string GetCommandResult(string commandText, bool firstLineOnly = true)
+        public string GetCommandResult(string commandText, bool firstLineOnly = true)
         {
             var result = GetCommandResult(ExecuteCommand(commandText));
-            return firstLineOnly ? GetFirstLine(result) : result;
+            return firstLineOnly ? Utilities.GetFirstLine(result) : result;
         }
 
-        protected string GetCommandResult(SshCommand command)
+        public string GetCommandResult(SshCommand command)
         {
             if (!WasSuccess(command) || string.IsNullOrEmpty(command.Result))
             {
@@ -191,35 +298,19 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             return command.Result.Trim();
         }
 
-        protected bool WasSuccess(SshCommand command)
+        public bool WasSuccess(SshCommand command)
         {
             return command.ExitStatus == 0;
         }
 
-        protected string GetFirstLine(string multiline)
-        {
-            var split = multiline.Split(Environment.NewLine.ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
-            return split.FirstOrDefault() ?? string.Empty;
-        }
-
-        protected Stream GetStreamFromText(string contents)
-        {
-            MemoryStream stream = new MemoryStream();
-            StreamWriter writer = new StreamWriter(stream);
-            writer.Write(contents);
-            writer.Flush();
-            stream.Position = 0;
-            return stream;
-        }
-
-        protected string LocateToolPath(string toolPath, string tool, string versionOption)
+        public string LocateToolPath(string toolPath, string tool, string versionOption)
         {
             string foundPath = null;
 
             if (!string.IsNullOrEmpty(toolPath))
             {
                 // if it was explicitly set, bail if it wasn't found
-                toolPath = PlatformPath.GetPathForMac(toolPath);
+                toolPath = SshPath.ToSsh(toolPath);
                 if (Commands.FileExists(toolPath))
                 {
                     foundPath = toolPath;
@@ -259,7 +350,7 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             }
             else
             {
-                foundPath = PlatformPath.GetPathForMac(foundPath);
+                foundPath = SshPath.ToSsh(foundPath);
                 if (string.IsNullOrEmpty(versionOption))
                 {
                     Log.LogVerbose($"Found {tool} at {foundPath}.");

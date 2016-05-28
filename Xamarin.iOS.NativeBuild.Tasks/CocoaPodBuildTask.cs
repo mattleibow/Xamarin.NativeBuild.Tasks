@@ -1,11 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using Microsoft.Build.Framework;
-using Xamarin.Messaging;
-using Xamarin.Messaging.Diagnostics;
-using Xamarin.VisualStudio.Build;
 
 namespace Xamarin.iOS.NativeBuild.Tasks
 {
@@ -15,25 +10,36 @@ namespace Xamarin.iOS.NativeBuild.Tasks
 
         public string PodToolPath { get; set; }
 
+        public CocoaPods CocoaPods { get; set; }
+
         public string XCodeBuildToolPath { get; set; }
+
+        public XCodeBuild XCodeBuild { get; set; }
 
         // pod properties
 
         [Required]
-        public string PodName { get; set; }
-
-        [Required]
-        public string PodVersion { get; set; }
-
-        [Required]
-        public string PlatformName { get; set; }
+        public ITaskItem[] Pods { get; set; }
 
         [Required]
         public string PlatformVersion { get; set; }
 
+        [Required]
+        public string PlatformName { get; set; }
+
         public bool UseFrameworks { get; set; }
 
-        // communication properties
+        public string Architectures { get; set; }
+
+        public CocoaPods.PodfilePlatform PodfilePlatform => (CocoaPods.PodfilePlatform)Enum.Parse(typeof(CocoaPods.PodfilePlatform), PlatformName, true);
+
+        // XCode
+
+        public XCodeArchitectures XCodeArchitectures => (XCodeArchitectures)Enum.Parse(typeof(XCodeArchitectures), Architectures, true);
+
+        public XCodePlatforms XCodePlatform => (XCodePlatforms)Enum.Parse(typeof(XCodePlatforms), PlatformName, true);
+
+        public XCodeBuildParameters.XCodeArcitecture XCodeBuildArchitecture => XCodeBuildParameters.GetArchitecture(XCodePlatform);
 
         public override bool Execute()
         {
@@ -55,7 +61,7 @@ namespace Xamarin.iOS.NativeBuild.Tasks
                 return false;
             }
 
-            // make sure we have POD available
+            // make sure we have xcodebuild available
             XCodeBuildToolPath = LocateToolPath(XCodeBuildToolPath, "xcodebuild", "-version");
             if (string.IsNullOrEmpty(XCodeBuildToolPath))
             {
@@ -68,220 +74,77 @@ namespace Xamarin.iOS.NativeBuild.Tasks
                 return false;
             }
 
-            var podfileRoot = PlatformPath.GetPathForMac(Path.Combine(BuildIntermediateOutputPath, PodName));
+            XCodeBuild = new XCodeBuild(XCodeBuildToolPath, Log, GetCancellationToken(), this);
+            CocoaPods = new CocoaPods(PodToolPath, Log, GetCancellationToken(), this);
 
-            // create the podfile for the bundling build
-            if (!CreatePodfileXCodeProject(podfileRoot, true))
+            var podfile = new CocoaPods.Podfile
             {
-                return false;
-            }
+                Platform = PodfilePlatform,
+                PlatformVersion = PlatformVersion,
+                UseFrameworks = UseFrameworks,
+                Pods = Pods.Select(p =>
+                    new CocoaPods.Pod
+                    {
+                        Id = p.ItemSpec,
+                        Version = p.GetMetadata("Version")
+                    }).ToArray()
+            };
 
-            // build Pod-CocoaPodBuildTask as a framework
-            if (!BuildPodfileXcodeProject(podfileRoot, true, XCodeBuildSettings.iOS.SimulatorSingle))
+            var podfileRoot = BuildIntermediateOutputPath;
+            var includeTargets = Pods.Select(p => p.ItemSpec).ToArray();
+
+            if (!UseFrameworks)
             {
-                return false;
-            }
+                // this extra step when building static archives is needed
+                // in order to collect the resources that should be added
+                //
+                // here we just use the first architecture
 
-            //// copy build/*.framework/*.bundle
+                // create the podfile for the bundling build
+                podfile.UseFrameworks = true;
+                if (!CocoaPods.CreatePodfileXCodeProject(podfileRoot, podfile, true))
+                {
+                    return false;
+                }
+                podfile.UseFrameworks = UseFrameworks;
+
+                // build Pod-CocoaPodBuildTask as a framework
+                if (!BuildPodfileXCodeProject(podfileRoot, includeTargets, XCodeBuildParameters.SplitArchitecture(XCodeArchitectures).FirstOrDefault(), true))
+                {
+                    return false;
+                }
+
+                // TODO: if building as a static archive,
+                // we need to manually include the resources.
+            }
 
             // create the podfile for the real build
-            if (!CreatePodfileXCodeProject(podfileRoot, UseFrameworks, noRepoUpdate: true))
+            if (!CocoaPods.CreatePodfileXCodeProject(podfileRoot, podfile, noRepoUpdate: true))
             {
                 return false;
             }
 
             // build Pod-CocoaPodBuildTask as requested
-            if (!BuildPodfileXcodeProject(podfileRoot, UseFrameworks, XCodeBuildSettings.iOS))
+            if (!BuildPodfileXCodeProject(podfileRoot, includeTargets, XCodeArchitectures, UseFrameworks))
             {
-                return false;
-            }
-
-
-            // in Release-iPhoneSimulator
-            //     - PodName.framework
-            //           lipo PodName (archive)
-            //           copy others
-            //     - lipo libPodName.a
-
-            Log.LogError("Finished Execute");
-            return false;
-
-            //messagingService.SshCommands.Runner.ExecuteBashCommand();
-
-            //var args = new CommandLineBuilder();
-            //args.AppendSwitch("-convert");
-            //args.AppendSwitch("binary1");
-            //args.AppendSwitch("-o");
-            //args.AppendFileNameIfNotNull(this.Output.ItemSpec);
-            //args.AppendFileNameIfNotNull(this.Input.ItemSpec);
-            //return args.ToString();
-
-            //Log.LogError(messagingService.Fingerprint);
-            //Log.LogError(buildserverPath);
-
-
-            //return (new TaskRunner(SessionId)).Run(this);
-
-            return true;
-        }
-
-        protected bool CreatePodfileXCodeProject(string podfileRoot, bool framework, bool? noRepoUpdate = null)
-        {
-            if (IsCancellationRequested)
-            {
-                Log.LogError("Task was canceled.");
-                return false;
-            }
-
-            var podfilePath = PlatformPath.GetPathForMac(Path.Combine(podfileRoot, "Podfile"));
-            var podfileLockPath = PlatformPath.GetPathForMac(Path.Combine(podfileRoot, "Podfile.lock"));
-
-            // see if we can avoid updating the master repo
-            noRepoUpdate = noRepoUpdate == true || (noRepoUpdate == null && FileExists(podfileLockPath));
-
-            // create and restore a Podfile
-            return CreatePodfile(framework, podfilePath) && RestorePodfile(podfileRoot, noRepoUpdate);
-        }
-
-        protected bool CreatePodfile(bool framework, string podfilePath)
-        {
-            if (IsCancellationRequested)
-            {
-                Log.LogError("Task was canceled.");
-                return false;
-            }
-
-            var podfile =
-                $"{(framework ? "use_frameworks!" : "")}\n" +
-                $"platform :{PlatformName}, '{PlatformVersion}'\n" +
-                $"target 'CocoaPodBuildTask' do\n" +
-                $"  pod '{PodName}', '{PodVersion}'\n" +
-                $"end";
-            CreateDirectory(PlatformPath.GetDirectoryNameForMac(podfilePath));
-            using (var stream = GetStreamFromText(podfile))
-            {
-                UploadFile(stream, podfilePath);
-            }
-
-            return true;
-        }
-
-        protected bool RestorePodfile(string podfileRoot, bool? noRepoUpdate)
-        {
-            if (IsCancellationRequested)
-            {
-                Log.LogError("Task was canceled.");
-                return false;
-            }
-
-            var restore =
-                $@"""{PodToolPath}"" install" +
-                $@"  --no-integrate" +
-                $@"  --project-directory=""{podfileRoot}""" +
-                $@"  {(noRepoUpdate == true ? "--no-repo-update" : "")}";
-            var restorePods = ExecuteCommandStream(restore);
-            if (!WasSuccess(restorePods))
-            {
-                Log.LogError("Error installing the podfile: " + restorePods.Result);
                 return false;
             }
 
             return true;
         }
 
-        protected bool BuildPodfileXcodeProject(string podfileRoot, bool framework, XCodeBuildSettings.XCodeArcitecture buildSettings)
+        private bool BuildPodfileXCodeProject(string podfileRoot, string[] targets, XCodeArchitectures architectures, bool framework)
         {
-            var projectFilePath = PlatformPath.GetPathForMac(Path.Combine(podfileRoot, "Pods/Pods.xcodeproj"));
-
-            if (UseFrameworks)
+            return XCodeBuild.BuildXCodeProject(new XCodeBuildParameters
             {
-
-            }
-            else
-            {
-
-            }
-
-            return BuildXCodeProject(projectFilePath, framework, buildSettings);
-        }
-
-        protected bool BuildXCodeProject(string projectFilePath, bool framework, XCodeBuildSettings.XCodeArcitecture buildSettings)
-        {
-            foreach (var build in buildSettings.Builds)
-            {
-                if (IsCancellationRequested)
-                {
-                    Log.LogError("Task was canceled.");
-                    return false;
-                }
-
-                var arch = build.Key;
-                var sdk = build.Value;
-
-                // build the project
-                var xcodebuild =
-                    $@"""{XCodeBuildToolPath}""" +
-                    $@"  -project ""{projectFilePath}""" +
-                    $@"  -target ""Pods-CocoaPodBuildTask""" +
-                    $@"  -configuration ""Release""" +
-                    $@"  -arch ""{arch}""" +
-                    $@"  -sdk ""{sdk}""" +
-                    $@"  build";
-                //var cd = $@"(cd ""{PlatformPath.GetDirectoryNameForMac(projectFilePath)}"" && {xcodebuild})";
-                var result = ExecuteCommandStream(xcodebuild);
-                if (!WasSuccess(result))
-                {
-                    Log.LogError($"Error building the XCode project: {result.Result}");
-                    return false;
-                }
-
-                if (IsCancellationRequested)
-                {
-                    Log.LogError("Task was canceled.");
-                    return false;
-                }
-
-                if (framework)
-                {
-                }
-                else
-                {
-                    // copy the output from static archives
-                    //var staticArchive = workingDirectory.Combine("build").Combine(os == TargetOS.Mac ? "Release" : ("Release-" + sdk)).CombineWithFilePath(output);
-                }
-            }
-
-            return true;
-        }
-
-        protected bool RunLipo(string podfileRoot, string output, params string[] inputs)
-        {
-            if (IsCancellationRequested)
-            {
-                Log.LogError("Task was canceled.");
-                return false;
-            }
-
-            output = PlatformPath.GetPathForMac(Path.Combine(podfileRoot, output));
-            inputs = inputs.Select(i => PlatformPath.GetPathForMac(Path.Combine(podfileRoot, i))).ToArray();
-
-            var lipo =
-                $@"lipo -create" +
-                $@"  -output ""{output}""" +
-                $@"  {inputs.Select(i => $@"""{i}"" ")}";
-            var runLipo = ExecuteCommand(lipo);
-            if (!WasSuccess(runLipo))
-            {
-                Log.LogError("Error running lipo: " + runLipo.Result);
-                return false;
-            }
-            else
-            {
-                Log.LogVerbose($"lipo result: {runLipo.Result}");
-            }
-
-            return true;
+                ArchitectureSettings = XCodeBuildArchitecture,
+                ArtifactsDirectory = SshPath.Combine(podfileRoot, "build"),
+                OutputDirectory = SshPath.Combine(podfileRoot, "out"),
+                IsFrameworks = framework,
+                ProjectFilePath = SshPath.Combine(podfileRoot, "Pods/Pods.xcodeproj"),
+                Targets = targets,
+                ArchitectureOverride = architectures
+            });
         }
     }
 }
-

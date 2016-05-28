@@ -5,34 +5,32 @@
              AssemblyFile="$(MSBuildThisFileDirectory)bin\Debug\Xamarin.iOS.NativeBuild.Tasks.dll"/>
 
   <PropertyGroup>
-
+    <CocoaPodPlatformName>ios</CocoaPodPlatformName>
+    <CocoaPodPlatformVersion>8.0</CocoaPodPlatformVersion>
+    <CocoaPodArchitectures>ARMv7,ARM64,x86_64</CocoaPodArchitectures>
   </PropertyGroup>
 
-  <Target Name="LogItAll" BeforeTargets="" AfterTargets="_SayHello">
+  <ItemGroup>
+    <CocoaPodItem Include="SocketRocket">
+      <Version>0.5.0</Version>
+    </CocoaPodItem>
+    <CocoaPodItem Include="12306DeveCocoa">
+      <Version>0.0.4</Version>
+    </CocoaPodItem>
+    <CocoaPodItem Include="VK-ios-sdk">
+      <Version>1.3.17</Version>
+    </CocoaPodItem>
+    <CocoaPodItem Include="CTAssetsPickerController">
+      <Version>3.3.1</Version>
+    </CocoaPodItem>
+  </ItemGroup>
 
-    <Message Text="SessionId='$(BuildSessionId)'" />
-    <Message Text="IntermediateDir='$(IntermediateOutputPath)build_package\'" />
-    <Message Text="ServerPort='$(ServerPort)'" />
-    <Message Text="MtbsBuildsPath='~/Library/Caches/Xamarin/mtbs/builds'" />
-    <Message Text="ServerAddress='$(ServerAddress)'" />
-    <Message Text="ServerUser='$(ServerUser)'" />
-    <Message Text="ServerPassword='$(ServerPassword)'" />
-    <Message Text="SSHKey='$(SSHKey)'" />
-    <Message Text="SSHPassPhrase='$(SSHPassPhrase)'" />
-    <Message Text="AppName='$(BuildAppName)'" />
-    <Message Text="GenerateCache='$(GenerateCache)'" />
-    <Message Text="ProjectDirectory='$(MSBuildProjectDirectory)'" />
-    <Message Text="ContinueOnDisconnected='$(ContinueOnDisconnected)'" />
-    <Message Text="BuildingInsideVisualStudio='$(BuildingInsideVisualStudio)'" />
-    <Message Text="MtouchTargetsEnabled='$(MtouchTargetsEnabled)'" />
-    <Message Text="MacBuildPath='$(MacBuildPath)'" />
-
-    <!--<GenerateCocoaPodFiles SessionId="$(BuildSessionId)"  /usr/local/bin/pod />-->
+  <Target Name="LogItAll" BeforeTargets="" AfterTargets="_SayHello" DependsOnTargets="">
 
     <CocoaPodBuildTask SessionId="$(BuildSessionId)" AppName="$(BuildAppName)"
-                       PodName="SocketRocket" PodVersion="0.5.0"
-                       PlatformName="ios" PlatformVersion="6.0"
-                       IntermediateOutputPath="$(DeviceSpecificIntermediateOutputPath)pods">
+                       PlatformName="$(CocoaPodPlatformName)" PlatformVersion="$(CocoaPodPlatformVersion)" Pods="@(CocoaPodItem)"
+                       IntermediateOutputPath="$(DeviceSpecificIntermediateOutputPath)pods"
+                       Architectures="$(MtouchArch),$(CocoaPodArchitectures)">
       <!--<Output TaskParameter="" PropertyName="MtouchExtraArgs" /> -gcc_flags "'mylib.a'" -->
     </CocoaPodBuildTask>
 
