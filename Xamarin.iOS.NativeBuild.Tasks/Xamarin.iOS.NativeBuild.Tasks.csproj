@@ -110,13 +110,25 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Common\ILogger.cs" />
+    <Compile Include="Common\ToolBase.cs" />
+    <Compile Include="Common\ToolLogger.cs" />
+    <Compile Include="GradleBuildTask.cs" />
     <Compile Include="CocoaPods\CocoaPodsTool.cs" />
     <Compile Include="CocoaPods\Pod.cs" />
     <Compile Include="CocoaPods\Podfile.cs" />
     <Compile Include="CocoaPods\PodfilePlatform.cs" />
     <Compile Include="Common\ISshInterface.cs" />
-    <Compile Include="Common\SshPath.cs" />
+    <Compile Include="Common\CrossPath.cs" />
     <Compile Include="Common\Utilities.cs" />
+    <Compile Include="Gradle\BuildAction.cs" />
+    <Compile Include="Gradle\GradleDependency.cs" />
+    <Compile Include="Gradle\GradleDependencyTypes.cs" />
+    <Compile Include="Gradle\GradleLibrary.cs" />
+    <Compile Include="Gradle\GradleRepositories.cs" />
+    <Compile Include="Gradle\GradleRepository.cs" />
+    <Compile Include="Gradle\GradleTool.cs" />
+    <Compile Include="BaseTask.cs" />
     <Compile Include="XCodeBuild\XCodeArchitectures.cs" />
     <Compile Include="XCodeBuild\XCodeBuildTool.cs" />
     <Compile Include="XCodeBuild\BuildArchitectureOutput.cs" />
@@ -133,6 +145,12 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Xamarin.iOS.NativeBuild.Tasks.targets">
+      <SubType>Designer</SubType>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Xamarin.Android.NativeBuild.Tasks.targets">
       <SubType>Designer</SubType>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>

@@ -1,7 +1,7 @@
 ﻿using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 
-namespace Xamarin.iOS.NativeBuild.Tasks.Common
+namespace Xamarin.NativeBuild.Tasks.Common
 {
     public static class LogExtensions
     {

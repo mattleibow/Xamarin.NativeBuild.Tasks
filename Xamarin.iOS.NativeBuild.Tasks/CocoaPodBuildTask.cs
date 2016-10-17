@@ -3,6 +3,7 @@ using Microsoft.Build.Framework;
 using Xamarin.iOS.NativeBuild.Tasks.XCodeBuild;
 using Xamarin.iOS.NativeBuild.Tasks.CocoaPods;
 using Xamarin.iOS.NativeBuild.Tasks.Common;
+using Xamarin.NativeBuild.Tasks.Common;
 
 namespace Xamarin.iOS.NativeBuild.Tasks
 {
@@ -150,10 +151,10 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             var parameters = new XCodeBuildParameters
             {
                 ArchitectureSettings = XCodeBuildArchitecture,
-                ArtifactsDirectory = SshPath.Combine(podfileRoot, "build"),
-                OutputDirectory = SshPath.Combine(podfileRoot, "out"),
+                ArtifactsDirectory = CrossPath.CombineSsh(podfileRoot, "build"),
+                OutputDirectory = CrossPath.CombineSsh(podfileRoot, "out"),
                 IsFrameworks = framework,
-                ProjectFilePath = SshPath.Combine(podfileRoot, "Pods/Pods.xcodeproj"),
+                ProjectFilePath = CrossPath.CombineSsh(podfileRoot, "Pods/Pods.xcodeproj"),
                 BuildTargets = new[] { "Pods-MSBuildTask" },
                 OutputTargets = targets,
                 ArchitectureOverride = architectures

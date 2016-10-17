@@ -15,14 +15,14 @@ using Renci.SshNet;
 using System.Diagnostics;
 using System.Text;
 using Xamarin.iOS.NativeBuild.Tasks.Common;
+using Xamarin.NativeBuild.Tasks.Common;
+using Xamarin.NativeBuild.Tasks;
 
 namespace Xamarin.iOS.NativeBuild.Tasks
 {
-    public abstract class SshBasedTask : Task, ICancelableTask, ISshInterface
+    public abstract class SshBasedTask : BaseTask, ISshInterface
     {
         protected static string[] ToolSearchPaths = { "/usr/local/bin", "/usr/local/sbin", "/usr/bin", "/usr/sbin", "/bin", "/sbin" };
-
-        private readonly CancellationTokenSource tokenSource;
 
         private readonly Lazy<IBuildClient> buildClient;
         private readonly Lazy<MessagingService> messagingService;
@@ -30,10 +30,6 @@ namespace Xamarin.iOS.NativeBuild.Tasks
 
         public SshBasedTask()
         {
-            // task stuff
-            tokenSource = new CancellationTokenSource();
-
-            // ssh stuff
             buildClient = new Lazy<IBuildClient>(() => BuildClients.Instance.Get(SessionId));
             messagingService = new Lazy<MessagingService>(() =>
             {
@@ -49,11 +45,6 @@ namespace Xamarin.iOS.NativeBuild.Tasks
 
         [Required]
         public string AppName { get; set; }
-
-        [Required]
-        public string IntermediateOutputPath { get; set; }
-
-        public bool IsCancellationRequested => tokenSource.IsCancellationRequested;
 
         private IBuildClient BuildClient => buildClient.Value;
 
@@ -71,11 +62,8 @@ namespace Xamarin.iOS.NativeBuild.Tasks
 
         public override bool Execute()
         {
-            Tracer.SetManager(BuildTracerManager.Instance);
-
-            if (IsCancellationRequested)
+            if (!base.Execute())
             {
-                Log.LogError("Task was canceled.");
                 return false;
             }
 
@@ -103,35 +91,25 @@ namespace Xamarin.iOS.NativeBuild.Tasks
 
             return true;
         }
-
-        public virtual void Cancel()
-        {
-            tokenSource.Cancel();
-        }
-
-        protected CancellationToken GetCancellationToken()
-        {
-            return tokenSource.Token;
-        }
-
+        
         public void CreateFile(Stream stream, string remotePath)
         {
-            Commands.Runner.Upload(stream, SshPath.ToSsh(remotePath));
+            Commands.Runner.Upload(stream, CrossPath.ToSsh(remotePath));
         }
 
         public void CopyPath(string source, string destination)
         {
-            ExecuteCommand($@"cp -rf ""{SshPath.ToSsh(source)}"" ""{SshPath.ToSsh(destination)}""");
+            ExecuteCommand($@"cp -rf ""{CrossPath.ToSsh(source)}"" ""{CrossPath.ToSsh(destination)}""");
         }
 
         public void CreateDirectory(string directoryPath)
         {
-            Commands.CreateDirectory(SshPath.ToSsh(directoryPath));
+            Commands.CreateDirectory(CrossPath.ToSsh(directoryPath));
         }
 
         public bool FileExists(string filePath)
         {
-            return Commands.FileExists(SshPath.ToSsh(filePath));
+            return Commands.FileExists(CrossPath.ToSsh(filePath));
         }
 
         private string CreatePList(string labelName, string outputPath, string errorPath, string[] arguments, string workingDirectory = null)
@@ -185,9 +163,9 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             var labelName = $"com.xamarin.nativebuild.tasks.{options.GetFormattedDateTime()}.{options.Id}.{Path.GetFileNameWithoutExtension(binary)}".ToLowerInvariant();
             var root = $"/tmp/{labelName}";
 
-            var outputLog = SshPath.Combine(root, "output.log");
-            var errorLog = SshPath.Combine(root, "error.log");
-            var appPList = SshPath.Combine(root, "app.plist");
+            var outputLog = CrossPath.CombineSsh(root, "output.log");
+            var errorLog = CrossPath.CombineSsh(root, "error.log");
+            var appPList = CrossPath.CombineSsh(root, "app.plist");
 
             // upload the plist
             var plist = CreatePList(labelName, outputLog, errorLog, arguments, workingDirectory);
@@ -313,7 +291,7 @@ namespace Xamarin.iOS.NativeBuild.Tasks
             if (!string.IsNullOrEmpty(toolPath))
             {
                 // if it was explicitly set, bail if it wasn't found
-                toolPath = SshPath.ToSsh(toolPath);
+                toolPath = CrossPath.ToSsh(toolPath);
                 if (Commands.FileExists(toolPath))
                 {
                     foundPath = toolPath;
@@ -349,11 +327,11 @@ namespace Xamarin.iOS.NativeBuild.Tasks
 
             if (string.IsNullOrEmpty(foundPath))
             {
-                Log.LogError("Unable to find {tool}.");
+                Log.LogError($"Unable to find {tool}.");
             }
             else
             {
-                foundPath = SshPath.ToSsh(foundPath);
+                foundPath = CrossPath.ToSsh(foundPath);
                 if (string.IsNullOrEmpty(versionOption))
                 {
                     Log.LogVerbose($"Found {tool} at {foundPath}.");

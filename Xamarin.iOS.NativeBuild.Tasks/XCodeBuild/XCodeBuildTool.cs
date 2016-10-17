@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.Build.Utilities;
 using Xamarin.iOS.NativeBuild.Tasks.Common;
+using Xamarin.NativeBuild.Tasks.Common;
 
 namespace Xamarin.iOS.NativeBuild.Tasks.XCodeBuild
 {
@@ -30,9 +31,9 @@ namespace Xamarin.iOS.NativeBuild.Tasks.XCodeBuild
 
         public bool BuildXCodeProject(XCodeBuildParameters parameters, XCodeBuildOutputs outputs)
         {
-            outputs.ProjectDirectory = SshPath.GetDirectoryName(parameters.ProjectFilePath);
-            outputs.OutputDirectory = parameters.OutputDirectory ?? SshPath.Combine(outputs.ProjectDirectory, "out");
-            outputs.ArtifactsDirectory = parameters.ArtifactsDirectory ?? SshPath.Combine(outputs.ProjectDirectory, "build");
+            outputs.ProjectDirectory = CrossPath.GetDirectoryNameSsh(parameters.ProjectFilePath);
+            outputs.OutputDirectory = parameters.OutputDirectory ?? CrossPath.CombineSsh(outputs.ProjectDirectory, "out");
+            outputs.ArtifactsDirectory = parameters.ArtifactsDirectory ?? CrossPath.CombineSsh(outputs.ProjectDirectory, "build");
 
             foreach (var arch in parameters.SplitArchitectures)
             {
@@ -42,7 +43,7 @@ namespace Xamarin.iOS.NativeBuild.Tasks.XCodeBuild
                     return false;
                 }
 
-                var artifactsPath = SshPath.Combine(outputs.ArtifactsDirectory, parameters.ArchitectureSettings.GetArtifactDirectoryName("Release", arch: arch));
+                var artifactsPath = CrossPath.CombineSsh(outputs.ArtifactsDirectory, parameters.ArchitectureSettings.GetArtifactDirectoryName("Release", arch: arch));
 
                 // build the project
                 var result = Ssh.ExecuteLaunchCtlCommand(
@@ -74,7 +75,7 @@ namespace Xamarin.iOS.NativeBuild.Tasks.XCodeBuild
                 {
                     // this might be set multiple times as this is target-based,
                     // but we are building the same target multiple times for each arch
-                    outputs[target].IntermediateDirectory = SshPath.Combine(outputs.OutputDirectory, target, "obj");
+                    outputs[target].IntermediateDirectory = CrossPath.CombineSsh(outputs.OutputDirectory, target, "obj");
                     Ssh.CreateDirectory(outputs[target].IntermediateDirectory);
 
                     var currentIntermediate = outputs[target].Intermediates[arch];
@@ -83,13 +84,13 @@ namespace Xamarin.iOS.NativeBuild.Tasks.XCodeBuild
                     if (parameters.IsFrameworks)
                     {
                         var cleanTarget = CleanFrameworkName(target);
-                        currentIntermediate.Path = SshPath.Combine(outputs[target].IntermediateDirectory, $"{cleanTarget}-{arch}.framework");
-                        Ssh.CopyPath(SshPath.Combine(artifactsPath, $"{cleanTarget}.framework"), currentIntermediate.Path);
+                        currentIntermediate.Path = CrossPath.CombineSsh(outputs[target].IntermediateDirectory, $"{cleanTarget}-{arch}.framework");
+                        Ssh.CopyPath(CrossPath.CombineSsh(artifactsPath, $"{cleanTarget}.framework"), currentIntermediate.Path);
                     }
                     else
                     {
-                        currentIntermediate.Path = SshPath.Combine(outputs.OutputDirectory, target, "obj", $"lib{target}-{arch}.a");
-                        Ssh.CopyPath(SshPath.Combine(artifactsPath, $"lib{target}.a"), currentIntermediate.Path);
+                        currentIntermediate.Path = CrossPath.CombineSsh(outputs.OutputDirectory, target, "obj", $"lib{target}-{arch}.a");
+                        Ssh.CopyPath(CrossPath.CombineSsh(artifactsPath, $"lib{target}.a"), currentIntermediate.Path);
                     }
                 }
             }
@@ -97,7 +98,7 @@ namespace Xamarin.iOS.NativeBuild.Tasks.XCodeBuild
             // run lipo on the outputs, from the obj to the out
             foreach (var targetOutput in outputs)
             {
-                targetOutput.Directory = SshPath.Combine(parameters.OutputDirectory, targetOutput.Target);
+                targetOutput.Directory = CrossPath.CombineSsh(parameters.OutputDirectory, targetOutput.Target);
 
                 // lipo the .a
                 var staticIntermediates = targetOutput.Intermediates.Where(i => !i.IsFrameworks);
@@ -107,7 +108,7 @@ namespace Xamarin.iOS.NativeBuild.Tasks.XCodeBuild
                     {
                         Architecture = Utilities.CreateEnum(staticIntermediates.Select(i => i.Architecture)),
                         IsFrameworks = false,
-                        Path = SshPath.Combine(parameters.OutputDirectory, targetOutput.Target, $"lib{targetOutput.Target}.a")
+                        Path = CrossPath.CombineSsh(parameters.OutputDirectory, targetOutput.Target, $"lib{targetOutput.Target}.a")
                     };
                     if (!RunLipo(targetOutput.ArchiveOutput.Path, staticIntermediates.Select(i => i.Path)))
                     {
@@ -125,7 +126,7 @@ namespace Xamarin.iOS.NativeBuild.Tasks.XCodeBuild
                     {
                         Architecture = Utilities.CreateEnum(frameworkIntermediates.Select(i => i.Architecture)),
                         IsFrameworks = true,
-                        Path = SshPath.Combine(parameters.OutputDirectory, targetOutput.Target, $"{cleanTarget}.framework")
+                        Path = CrossPath.CombineSsh(parameters.OutputDirectory, targetOutput.Target, $"{cleanTarget}.framework")
                     };
 
                     // copy the first arch as we need the other files
@@ -133,7 +134,7 @@ namespace Xamarin.iOS.NativeBuild.Tasks.XCodeBuild
                     Ssh.CopyPath(firstArch.Path, targetOutput.FrameworkOutput.Path);
 
                     // now lipo the archive
-                    if (!RunLipo(SshPath.Combine(targetOutput.FrameworkOutput.Path, cleanTarget), frameworkIntermediates.Select(i => SshPath.Combine(i.Path, cleanTarget))))
+                    if (!RunLipo(CrossPath.CombineSsh(targetOutput.FrameworkOutput.Path, cleanTarget), frameworkIntermediates.Select(i => CrossPath.CombineSsh(i.Path, cleanTarget))))
                     {
                         return false;
                     }

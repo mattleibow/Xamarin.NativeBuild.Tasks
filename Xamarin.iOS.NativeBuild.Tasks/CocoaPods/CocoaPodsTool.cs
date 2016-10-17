@@ -1,6 +1,7 @@
 using System.Threading;
 using Microsoft.Build.Utilities;
 using Xamarin.iOS.NativeBuild.Tasks.Common;
+using Xamarin.NativeBuild.Tasks.Common;
 
 namespace Xamarin.iOS.NativeBuild.Tasks.CocoaPods
 {
@@ -30,8 +31,8 @@ namespace Xamarin.iOS.NativeBuild.Tasks.CocoaPods
                 return false;
             }
 
-            var podfilePath = SshPath.Combine(podfileRoot, "Podfile");
-            var podfileLockPath = SshPath.Combine(podfileRoot, "Podfile.lock");
+            var podfilePath = CrossPath.CombineSsh(podfileRoot, "Podfile");
+            var podfileLockPath = CrossPath.CombineSsh(podfileRoot, "Podfile.lock");
 
             // see if we can avoid updating the master repo
             noRepoUpdate = noRepoUpdate == true || (noRepoUpdate == null && Ssh.FileExists(podfileLockPath));
@@ -59,7 +60,7 @@ namespace Xamarin.iOS.NativeBuild.Tasks.CocoaPods
             }
             podfileContents +=
                 $"end";
-            Ssh.CreateDirectory(SshPath.GetDirectoryName(podfilePath));
+            Ssh.CreateDirectory(CrossPath.GetDirectoryNameSsh(podfilePath));
             using (var stream = Utilities.GetStreamFromText(podfileContents))
             {
                 Ssh.CreateFile(stream, podfilePath);
